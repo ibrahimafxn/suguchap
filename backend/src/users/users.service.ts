@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from './user.schema';
 import { UpdateMeDto } from './dto/update-me.dto';
+import { UserRole } from '../common/types/enums';
 
 @Injectable()
 export class UsersService {
@@ -15,6 +16,27 @@ export class UsersService {
     const existing = await this.usersModel.findOne({ phone }).exec();
     if (existing) return existing;
     const created = new this.usersModel({ phone });
+    return created.save();
+  }
+
+  async createUser(payload: {
+    phone: string;
+    name: string;
+    city: string;
+    address: string;
+    role?: UserRole;
+  }): Promise<UserDocument> {
+    const existing = await this.usersModel.findOne({ phone: payload.phone }).exec();
+    if (existing) {
+      throw new ConflictException('Phone already registered');
+    }
+    const created = new this.usersModel({
+      phone: payload.phone,
+      name: payload.name,
+      city: payload.city,
+      address: payload.address,
+      role: payload.role ?? UserRole.CLIENT,
+    });
     return created.save();
   }
 

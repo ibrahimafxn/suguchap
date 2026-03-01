@@ -70,6 +70,9 @@ class RootScreen extends StatelessWidget {
     if (!appState.isAuthenticated) {
       return const AuthScreen();
     }
+    if (appState.isCourierMode) {
+      return const CourierHomeScreen();
+    }
     if (!appState.isOnboarded) {
       return const OnboardingScreen();
     }
@@ -127,6 +130,32 @@ class ApiClient {
     );
     if (response.statusCode != 201 && response.statusCode != 200) {
       throw Exception('Erreur OTP verify (${response.statusCode})');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return AuthResult.fromJson(data);
+  }
+
+  Future<AuthResult> signup({
+    required String phone,
+    required String name,
+    required String city,
+    required String address,
+    required String role,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/auth/signup');
+    final response = await http.post(
+      uri,
+      headers: _headers(),
+      body: jsonEncode({
+        'phone': phone,
+        'name': name,
+        'city': city,
+        'address': address,
+        'role': role,
+      }),
+    );
+    if (response.statusCode != 201 && response.statusCode != 200) {
+      throw Exception('Erreur signup (${response.statusCode})');
     }
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return AuthResult.fromJson(data);
@@ -216,19 +245,81 @@ class ApiClient {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return OrderResult.fromJson(data);
   }
+
+  Future<List<CourierOrder>> fetchCourierAvailable() async {
+    final uri = Uri.parse('$baseUrl/api/v1/courier/orders');
+    final response = await http.get(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw Exception('Erreur API courier orders (${response.statusCode})');
+    }
+    final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
+    return data.map((item) => CourierOrder.fromJson(item as Map<String, dynamic>)).toList();
+  }
+
+  Future<List<CourierOrder>> fetchCourierMine() async {
+    final uri = Uri.parse('$baseUrl/api/v1/courier/orders?me=1');
+    final response = await http.get(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw Exception('Erreur API courier orders (${response.statusCode})');
+    }
+    final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
+    return data.map((item) => CourierOrder.fromJson(item as Map<String, dynamic>)).toList();
+  }
+
+  Future<CourierOrder> acceptCourierOrder(String orderId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/courier/orders/$orderId/accept');
+    final response = await http.post(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw Exception('Erreur API courier accept (${response.statusCode})');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return CourierOrder.fromJson(data);
+  }
+
+  Future<CourierOrder> markCourierEnAchat(String orderId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/courier/orders/$orderId/mark-en-achat');
+    final response = await http.post(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw Exception('Erreur API courier en-achat (${response.statusCode})');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return CourierOrder.fromJson(data);
+  }
+
+  Future<CourierOrder> markCourierEnLivraison(String orderId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/courier/orders/$orderId/mark-en-livraison');
+    final response = await http.post(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw Exception('Erreur API courier en-livraison (${response.statusCode})');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return CourierOrder.fromJson(data);
+  }
+
+  Future<CourierOrder> markCourierLivree(String orderId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/courier/orders/$orderId/mark-livree');
+    final response = await http.post(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw Exception('Erreur API courier livree (${response.statusCode})');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return CourierOrder.fromJson(data);
+  }
 }
 
 class AuthResult {
   final String token;
   final String phone;
+  final String role;
 
-  const AuthResult({required this.token, required this.phone});
+  const AuthResult({required this.token, required this.phone, required this.role});
 
   factory AuthResult.fromJson(Map<String, dynamic> json) {
     final user = json['user'] as Map<String, dynamic>? ?? {};
     return AuthResult(
       token: json['token']?.toString() ?? '',
       phone: user['phone']?.toString() ?? '',
+      role: user['role']?.toString() ?? 'client',
     );
   }
 }
@@ -247,6 +338,29 @@ class OrderResult {
   }
 }
 
+class CourierOrder {
+  final String id;
+  final String status;
+  final String address;
+  final String city;
+
+  const CourierOrder({
+    required this.id,
+    required this.status,
+    required this.address,
+    required this.city,
+  });
+
+  factory CourierOrder.fromJson(Map<String, dynamic> json) {
+    return CourierOrder(
+      id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
+      status: json['status']?.toString() ?? '',
+      address: json['delivery_address']?.toString() ?? '',
+      city: json['delivery_city']?.toString() ?? '',
+    );
+  }
+}
+
 class AppState extends ChangeNotifier {
   AppState({required this.apiClient, required this.storage});
 
@@ -255,6 +369,7 @@ class AppState extends ChangeNotifier {
 
   static const _tokenKey = 'auth_token';
   static const _phoneKey = 'phone';
+  static const _roleKey = 'role';
   static const _cityKey = 'city';
   static const _addressKey = 'address';
   static const _onboardedKey = 'onboarded';
@@ -266,16 +381,22 @@ class AppState extends ChangeNotifier {
   bool orderLoading = false;
   bool isReady = false;
   OrderResult? lastOrder;
+  bool isCourierMode = false;
+  bool courierLoading = false;
+  List<CourierOrder> courierAvailable = [];
+  List<CourierOrder> courierMine = [];
   String? lastError;
 
   String? city;
   String? address;
   String? phone;
+  String role = 'client';
   String? selectedMarketId;
   bool isOnboarded = false;
 
   String? authToken;
   bool get isAuthenticated => authToken != null && authToken!.isNotEmpty;
+  bool get isCourierMode => role == 'courier';
 
   final Map<String, CartItem> cart = {};
 
@@ -283,6 +404,7 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     authToken = await storage.read(key: _tokenKey);
     phone = prefs.getString(_phoneKey);
+    role = prefs.getString(_roleKey) ?? 'client';
     city = prefs.getString(_cityKey);
     address = prefs.getString(_addressKey);
     isOnboarded = prefs.getBool(_onboardedKey) ?? false;
@@ -295,13 +417,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setAuthToken(String token, String phone) async {
+  Future<void> setAuthToken(String token, String phone, String role) async {
     authToken = token;
     this.phone = phone;
+    this.role = role;
     apiClient.setToken(token);
     await storage.write(key: _tokenKey, value: token);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_phoneKey, phone);
+    await prefs.setString(_roleKey, role);
     notifyListeners();
   }
 
@@ -324,11 +448,65 @@ class AppState extends ChangeNotifier {
     phone = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_phoneKey);
+    await prefs.remove(_roleKey);
     await prefs.remove(_cityKey);
     await prefs.remove(_addressKey);
     await prefs.remove(_onboardedKey);
     await storage.delete(key: _tokenKey);
     notifyListeners();
+  }
+
+  Future<void> loadCourierLists() async {
+    courierLoading = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      courierAvailable = await apiClient.fetchCourierAvailable();
+      courierMine = await apiClient.fetchCourierMine();
+    } catch (err) {
+      lastError = err.toString();
+    } finally {
+      courierLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> acceptCourier(String orderId) async {
+    courierLoading = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      await apiClient.acceptCourierOrder(orderId);
+      await loadCourierLists();
+    } catch (err) {
+      lastError = err.toString();
+      rethrow;
+    } finally {
+      courierLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateCourierStatus(String orderId, String action) async {
+    courierLoading = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      if (action == 'en_achat') {
+        await apiClient.markCourierEnAchat(orderId);
+      } else if (action == 'en_livraison') {
+        await apiClient.markCourierEnLivraison(orderId);
+      } else if (action == 'livree') {
+        await apiClient.markCourierLivree(orderId);
+      }
+      await loadCourierLists();
+    } catch (err) {
+      lastError = err.toString();
+      rethrow;
+    } finally {
+      courierLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> loadMarkets() async {
@@ -526,8 +704,13 @@ class _AuthScreenState extends State<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _codeController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _addressController = TextEditingController();
 
   bool _codeStep = false;
+  bool _isSignup = false;
+  String _selectedRole = 'client';
   bool _loading = false;
   String? _error;
 
@@ -535,6 +718,9 @@ class _AuthScreenState extends State<AuthScreen> {
   void dispose() {
     _phoneController.dispose();
     _codeController.dispose();
+    _nameController.dispose();
+    _cityController.dispose();
+    _addressController.dispose();
     super.dispose();
   }
 
@@ -583,11 +769,58 @@ class _AuthScreenState extends State<AuthScreen> {
             _phoneController.text.trim(),
             code,
           );
-      await AppStateScope.of(context).setAuthToken(result.token, result.phone);
+      await AppStateScope.of(context).setAuthToken(result.token, result.phone, result.role);
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-      );
+      if (result.role == 'courier') {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const CourierHomeScreen()),
+        );
+      } else {
+        AppStateScope.of(context).completeOnboarding(
+          city: _cityController.text.trim(),
+          address: _addressController.text.trim(),
+          phone: result.phone,
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MarketListScreen()),
+        );
+      }
+    } catch (err) {
+      setState(() {
+        _error = err.toString();
+      });
+    } finally {
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _signup() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final result = await AppStateScope.of(context).apiClient.signup(
+            phone: _phoneController.text.trim(),
+            name: _nameController.text.trim(),
+            city: _cityController.text.trim(),
+            address: _addressController.text.trim(),
+            role: _selectedRole,
+          );
+      await AppStateScope.of(context).setAuthToken(result.token, result.phone, result.role);
+      if (!mounted) return;
+      if (result.role == 'courier') {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const CourierHomeScreen()),
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+        );
+      }
     } catch (err) {
       setState(() {
         _error = err.toString();
@@ -603,7 +836,7 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Connexion'),
+        title: Text(_isSignup ? 'Inscription' : 'Connexion'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(20),
@@ -612,12 +845,42 @@ class _AuthScreenState extends State<AuthScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        setState(() {
+                          _isSignup = false;
+                          _codeStep = false;
+                          _error = null;
+                        });
+                      },
+                      child: const Text('Connexion'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () {
+                        setState(() {
+                          _isSignup = true;
+                          _codeStep = false;
+                          _error = null;
+                        });
+                      },
+                      child: const Text('Inscription'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               const Text(
                 'Saisis ton numero',
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
-              const Text('Un code OTP sera envoye par SMS.'),
+              Text(_isSignup ? 'Cree ton compte' : 'Un code OTP sera envoye par SMS.'),
               const SizedBox(height: 24),
               TextFormField(
                 controller: _phoneController,
@@ -634,6 +897,69 @@ class _AuthScreenState extends State<AuthScreen> {
                   return null;
                 },
               ),
+              if (_isSignup) ...[
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nom complet',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().length < 2) {
+                      return 'Nom invalide';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _cityController,
+                  decoration: const InputDecoration(
+                    labelText: 'Ville',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().length < 2) {
+                      return 'Ville invalide';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _addressController,
+                  decoration: const InputDecoration(
+                    labelText: 'Adresse',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().length < 5) {
+                      return 'Adresse invalide';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: _selectedRole,
+                  decoration: const InputDecoration(
+                    labelText: 'Role',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'client', child: Text('Client')),
+                    DropdownMenuItem(value: 'courier', child: Text('Livreur')),
+                    DropdownMenuItem(value: 'seller', child: Text('Vendeur')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _selectedRole = value;
+                    });
+                  },
+                ),
+              ],
               if (!devSkipOtpCode && _codeStep) ...[
                 const SizedBox(height: 16),
                 TextFormField(
@@ -658,9 +984,11 @@ class _AuthScreenState extends State<AuthScreen> {
                 child: FilledButton(
                   onPressed: _loading
                       ? null
-                      : _codeStep
-                          ? _verifyOtp
-                          : _requestOtp,
+                      : _isSignup
+                          ? _signup
+                          : _codeStep
+                              ? _verifyOtp
+                              : _requestOtp,
                   child: _loading
                       ? const SizedBox(
                           height: 20,
@@ -1050,6 +1378,195 @@ class CatalogScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class CourierHomeScreen extends StatefulWidget {
+  const CourierHomeScreen({super.key});
+
+  @override
+  State<CourierHomeScreen> createState() => _CourierHomeScreenState();
+}
+
+class _CourierHomeScreenState extends State<CourierHomeScreen> {
+  bool _loaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loaded) return;
+    _loaded = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      AppStateScope.of(context).loadCourierLists();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = AppStateScope.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Coursier'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await appState.signOut();
+              if (!context.mounted) return;
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const AuthScreen()),
+                (route) => false,
+              );
+            },
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: appState.courierLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Commandes disponibles',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  _CourierList(
+                    orders: appState.courierAvailable,
+                    emptyLabel: 'Aucune commande disponible.',
+                    onAccept: (id) => appState.acceptCourier(id),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Mes commandes',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  _CourierMyList(
+                    orders: appState.courierMine,
+                    emptyLabel: 'Aucune commande en cours.',
+                    onStatus: (id, action) => appState.updateCourierStatus(id, action),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _CourierList extends StatelessWidget {
+  const _CourierList({
+    required this.orders,
+    required this.emptyLabel,
+    required this.onAccept,
+  });
+
+  final List<CourierOrder> orders;
+  final String emptyLabel;
+  final void Function(String id) onAccept;
+
+  @override
+  Widget build(BuildContext context) {
+    if (orders.isEmpty) {
+      return Text(emptyLabel);
+    }
+    return Column(
+      children: orders
+          .map(
+            (order) => Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(order.id, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 4),
+                        Text('${order.address} • ${order.city}'),
+                      ],
+                    ),
+                  ),
+                  FilledButton(
+                    onPressed: () => onAccept(order.id),
+                    child: const Text('Accepter'),
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _CourierMyList extends StatelessWidget {
+  const _CourierMyList({
+    required this.orders,
+    required this.emptyLabel,
+    required this.onStatus,
+  });
+
+  final List<CourierOrder> orders;
+  final String emptyLabel;
+  final void Function(String id, String action) onStatus;
+
+  @override
+  Widget build(BuildContext context) {
+    if (orders.isEmpty) {
+      return Text(emptyLabel);
+    }
+    return Column(
+      children: orders
+          .map(
+            (order) => Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(order.id, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text('${order.address} • ${order.city}'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () => onStatus(order.id, 'en_achat'),
+                        child: const Text('En achat'),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => onStatus(order.id, 'en_livraison'),
+                        child: const Text('En livraison'),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => onStatus(order.id, 'livree'),
+                        child: const Text('Livree'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
     );
   }
 }

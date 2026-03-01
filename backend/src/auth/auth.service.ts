@@ -1,8 +1,10 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { OtpService } from './otp.service';
 import { UserDocument } from '../users/user.schema';
+import { SignupDto } from './dto/signup.dto';
+import { UserRole } from '../common/types/enums';
 
 @Injectable()
 export class AuthService {
@@ -24,6 +26,27 @@ export class AuthService {
     }
 
     const user = await this.usersService.findOrCreateByPhone(phone);
+    const token = await this.jwtService.signAsync({
+      sub: user.id ?? user._id.toString(),
+      phone: user.phone,
+      role: user.role,
+    });
+
+    return { token, user };
+  }
+
+  async signup(dto: SignupDto): Promise<{ token: string; user: UserDocument }> {
+    if (dto.role === UserRole.ADMIN) {
+      throw new BadRequestException('Admin signup is not allowed');
+    }
+    const user = await this.usersService.createUser({
+      phone: dto.phone,
+      name: dto.name,
+      city: dto.city,
+      address: dto.address,
+      role: dto.role,
+    });
+
     const token = await this.jwtService.signAsync({
       sub: user.id ?? user._id.toString(),
       phone: user.phone,
