@@ -27,4 +27,9 @@ export class SignupDto {
   @IsOptional()
   @IsEnum(UserRole)
   role?: UserRole;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d{6}$/, { message: 'password must be 6 digits' })
+  password!: string;
 }

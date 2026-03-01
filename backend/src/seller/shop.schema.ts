@@ -1,38 +1,38 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-export type ProductDocument = Product & Document;
+export type ShopDocument = Shop & Document;
 
 @Schema({
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
   toJSON: { virtuals: true, versionKey: false },
   toObject: { virtuals: true },
 })
-export class Product {
+export class Shop {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true, unique: true })
+  seller_id!: Types.ObjectId;
+
   @Prop({ type: Types.ObjectId, ref: 'Market', required: true })
   market_id!: Types.ObjectId;
-
-  @Prop({ type: Types.ObjectId, ref: 'User' })
-  seller_id?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true })
   name!: string;
 
-  @Prop({ type: String })
-  category?: string | null;
+  @Prop({ type: String, required: true })
+  city!: string;
+
+  @Prop({ type: String, required: true })
+  address!: string;
 
   @Prop({ type: String })
-  unit?: string | null;
-
-  @Prop({ type: Number, required: true })
-  price_estimated!: number;
+  phone?: string | null;
 
   @Prop({ type: Boolean, default: true })
   is_active!: boolean;
 }
 
-export const ProductSchema = SchemaFactory.createForClass(Product);
+export const ShopSchema = SchemaFactory.createForClass(Shop);
 
-ProductSchema.virtual('id').get(function (this: ProductDocument) {
+ShopSchema.virtual('id').get(function (this: ShopDocument) {
   return this._id.toString();
 });

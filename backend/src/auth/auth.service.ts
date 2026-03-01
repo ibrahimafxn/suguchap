@@ -5,6 +5,8 @@ import { OtpService } from './otp.service';
 import { UserDocument } from '../users/user.schema';
 import { SignupDto } from './dto/signup.dto';
 import { UserRole } from '../common/types/enums';
+import { LoginDto } from './dto/login.dto';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class AuthService {
@@ -45,7 +47,27 @@ export class AuthService {
       city: dto.city,
       address: dto.address,
       role: dto.role,
+      password: dto.password,
     });
+
+    const token = await this.jwtService.signAsync({
+      sub: user.id ?? user._id.toString(),
+      phone: user.phone,
+      role: user.role,
+    });
+
+    return { token, user };
+  }
+
+  async login(dto: LoginDto): Promise<{ token: string; user: UserDocument }> {
+    const user = await this.usersService.findByPhone(dto.phone);
+    if (!user || !user.password_hash) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    const ok = await bcrypt.compare(dto.password, user.password_hash);
+    if (!ok) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     const token = await this.jwtService.signAsync({
       sub: user.id ?? user._id.toString(),

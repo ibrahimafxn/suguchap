@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import { User, UserDocument } from './user.schema';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { UserRole } from '../common/types/enums';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class UsersService {
@@ -19,23 +20,30 @@ export class UsersService {
     return created.save();
   }
 
+  async findByPhone(phone: string): Promise<UserDocument | null> {
+    return this.usersModel.findOne({ phone }).exec();
+  }
+
   async createUser(payload: {
     phone: string;
     name: string;
     city: string;
     address: string;
     role?: UserRole;
+    password: string;
   }): Promise<UserDocument> {
     const existing = await this.usersModel.findOne({ phone: payload.phone }).exec();
     if (existing) {
       throw new ConflictException('Phone already registered');
     }
+    const passwordHash = await bcrypt.hash(payload.password, 10);
     const created = new this.usersModel({
       phone: payload.phone,
       name: payload.name,
       city: payload.city,
       address: payload.address,
       role: payload.role ?? UserRole.CLIENT,
+      password_hash: passwordHash,
     });
     return created.save();
   }
