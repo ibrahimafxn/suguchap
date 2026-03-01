@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 const String apiBaseUrl = 'http://localhost:3000';
 const bool devSkipOtpCode = true;
@@ -17,7 +19,10 @@ class SuguChapApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppStateScope(
-      notifier: AppState(apiClient: ApiClient(baseUrl: apiBaseUrl)),
+      notifier: AppState(
+        apiClient: ApiClient(baseUrl: apiBaseUrl),
+        storage: const FlutterSecureStorage(),
+      )..bootstrap(),
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'SuguChap',
@@ -59,6 +64,9 @@ class RootScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final appState = AppStateScope.of(context);
+    if (!appState.isReady) {
+      return const SplashScreen();
+    }
     if (!appState.isAuthenticated) {
       return const AuthScreen();
     }
@@ -66,6 +74,17 @@ class RootScreen extends StatelessWidget {
       return const OnboardingScreen();
     }
     return const MarketListScreen();
+  }
+}
+
+class SplashScreen extends StatelessWidget {
+  const SplashScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
   }
 }
 
@@ -181,11 +200,16 @@ class ApiClient {
 
 class AuthResult {
   final String token;
+  final String phone;
 
-  const AuthResult({required this.token});
+  const AuthResult({required this.token, required this.phone});
 
   factory AuthResult.fromJson(Map<String, dynamic> json) {
-    return AuthResult(token: json['token']?.toString() ?? '');
+    final user = json['user'] as Map<String, dynamic>? ?? {};
+    return AuthResult(
+      token: json['token']?.toString() ?? '',
+      phone: user['phone']?.toString() ?? '',
+    );
   }
 }
 
@@ -204,15 +228,23 @@ class OrderResult {
 }
 
 class AppState extends ChangeNotifier {
-  AppState({required this.apiClient});
+  AppState({required this.apiClient, required this.storage});
 
   final ApiClient apiClient;
+  final FlutterSecureStorage storage;
+
+  static const _tokenKey = 'auth_token';
+  static const _phoneKey = 'phone';
+  static const _cityKey = 'city';
+  static const _addressKey = 'address';
+  static const _onboardedKey = 'onboarded';
 
   List<Market> markets = [];
   List<Product> products = [];
   bool marketsLoading = false;
   bool productsLoading = false;
   bool orderLoading = false;
+  bool isReady = false;
   OrderResult? lastOrder;
   String? lastError;
 
@@ -227,18 +259,55 @@ class AppState extends ChangeNotifier {
 
   final Map<String, CartItem> cart = {};
 
-  void setAuthToken(String token) {
-    authToken = token;
-    apiClient.setToken(token);
+  Future<void> bootstrap() async {
+    final prefs = await SharedPreferences.getInstance();
+    authToken = await storage.read(key: _tokenKey);
+    phone = prefs.getString(_phoneKey);
+    city = prefs.getString(_cityKey);
+    address = prefs.getString(_addressKey);
+    isOnboarded = prefs.getBool(_onboardedKey) ?? false;
+
+    if (authToken != null && authToken!.isNotEmpty) {
+      apiClient.setToken(authToken!);
+    }
+
+    isReady = true;
     notifyListeners();
   }
 
-  void signOut() {
+  Future<void> setAuthToken(String token, String phone) async {
+    authToken = token;
+    this.phone = phone;
+    apiClient.setToken(token);
+    await storage.write(key: _tokenKey, value: token);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_phoneKey, phone);
+    notifyListeners();
+  }
+
+  Future<void> persistProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cityKey, city ?? '');
+    await prefs.setString(_addressKey, address ?? '');
+    await prefs.setBool(_onboardedKey, isOnboarded);
+  }
+
+  Future<void> signOut() async {
     authToken = null;
     apiClient.setToken('');
     markets = [];
     products = [];
     cart.clear();
+    isOnboarded = false;
+    city = null;
+    address = null;
+    phone = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_phoneKey);
+    await prefs.remove(_cityKey);
+    await prefs.remove(_addressKey);
+    await prefs.remove(_onboardedKey);
+    await storage.delete(key: _tokenKey);
     notifyListeners();
   }
 
@@ -329,6 +398,7 @@ class AppState extends ChangeNotifier {
     this.address = address;
     this.phone = phone;
     isOnboarded = true;
+    persistProfile();
     notifyListeners();
   }
 
@@ -459,7 +529,7 @@ class _AuthScreenState extends State<AuthScreen> {
             _phoneController.text.trim(),
             code,
           );
-      AppStateScope.of(context).setAuthToken(result.token);
+      await AppStateScope.of(context).setAuthToken(result.token, result.phone);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const OnboardingScreen()),
@@ -573,6 +643,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = AppStateScope.of(context);
+    if (_cityController.text.isEmpty && appState.city != null) {
+      _cityController.text = appState.city!;
+    }
+    if (_addressController.text.isEmpty && appState.address != null) {
+      _addressController.text = appState.address!;
+    }
+  }
+
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
     AppStateScope.of(context).completeOnboarding(
@@ -682,8 +764,9 @@ class _MarketListScreenState extends State<MarketListScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {
-              appState.signOut();
+            onPressed: () async {
+              await appState.signOut();
+              if (!context.mounted) return;
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(builder: (_) => const AuthScreen()),
                 (route) => false,
