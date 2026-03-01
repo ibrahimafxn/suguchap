@@ -118,4 +118,32 @@ export class OrdersService {
     order.failed_reason = reason;
     return order.save();
   }
+
+  async listAll() {
+    return this.ordersModel.find({}).sort({ created_at: -1 }).exec();
+  }
+
+  async adjustPrice(id: string, priceRealTotal: number) {
+    const order = await this.findById(id);
+    if (priceRealTotal < 0) {
+      throw new BadRequestException('Invalid price');
+    }
+    order.price_real_total = priceRealTotal;
+    return order.save();
+  }
+
+  async confirmRealPrice(userId: string, id: string) {
+    const order = await this.findById(id);
+    if (order.user_id.toString() !== userId) {
+      throw new BadRequestException('Order not owned by user');
+    }
+    if (order.price_real_total === null || order.price_real_total === undefined) {
+      throw new BadRequestException('No real price set');
+    }
+    if (order.status !== OrderStatus.NOUVELLE) {
+      throw new BadRequestException('Order cannot be confirmed');
+    }
+    order.status = OrderStatus.PRIX_VALIDE;
+    return order.save();
+  }
 }
