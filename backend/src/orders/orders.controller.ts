@@ -49,6 +49,16 @@ export class OrdersController {
     return this.ordersService.cancel(user.id, id, dto.reason);
   }
 
+  @Post(':id/validate-price')
+  validatePrice(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.ordersService.validatePrice(user.id, id);
+  }
+
+  @Post(':id/mark-paid')
+  markPaid(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.ordersService.markPaid(user.id, id);
+  }
+
   @Post(':id/mark-failed')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)

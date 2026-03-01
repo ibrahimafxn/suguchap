@@ -196,6 +196,26 @@ class ApiClient {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return OrderResult.fromJson(data);
   }
+
+  Future<OrderResult> validatePrice(String orderId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/orders/$orderId/validate-price');
+    final response = await http.post(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw Exception('Erreur API validate-price (${response.statusCode})');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return OrderResult.fromJson(data);
+  }
+
+  Future<OrderResult> markPaid(String orderId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/orders/$orderId/mark-paid');
+    final response = await http.post(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw Exception('Erreur API mark-paid (${response.statusCode})');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return OrderResult.fromJson(data);
+  }
 }
 
 class AuthResult {
@@ -378,6 +398,40 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       final result = await apiClient.fetchOrder(orderId);
+      lastOrder = result;
+      return result;
+    } catch (err) {
+      lastError = err.toString();
+      rethrow;
+    } finally {
+      orderLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<OrderResult> validateOrderPrice(String orderId) async {
+    orderLoading = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final result = await apiClient.validatePrice(orderId);
+      lastOrder = result;
+      return result;
+    } catch (err) {
+      lastError = err.toString();
+      rethrow;
+    } finally {
+      orderLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<OrderResult> markOrderPaid(String orderId) async {
+    orderLoading = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final result = await apiClient.markPaid(orderId);
       lastOrder = result;
       return result;
     } catch (err) {
@@ -1245,11 +1299,12 @@ class PriceValidationScreen extends StatelessWidget {
                     ? null
                     : () async {
                         try {
-                          final result = await appState.submitOrder();
+                          final created = await appState.submitOrder();
+                          final validated = await appState.validateOrderPrice(created.id);
                           if (!context.mounted) return;
                           Navigator.of(context).pushReplacement(
                             MaterialPageRoute(
-                              builder: (_) => OrderStatusScreen(orderId: result.id),
+                              builder: (_) => PaymentScreen(orderId: validated.id),
                             ),
                           );
                         } catch (err) {
@@ -1400,6 +1455,117 @@ class _StatusStep extends StatelessWidget {
           const SizedBox(width: 12),
           Text(title),
         ],
+      ),
+    );
+  }
+}
+
+class PaymentScreen extends StatelessWidget {
+  const PaymentScreen({super.key, required this.orderId});
+
+  final String orderId;
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = AppStateScope.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Paiement'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Choisir un mode de paiement',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 16),
+            _PaymentOption(
+              title: 'Mobile Money (mock)',
+              subtitle: 'Payer maintenant',
+              onTap: appState.orderLoading
+                  ? null
+                  : () async {
+                      try {
+                        final paid = await appState.markOrderPaid(orderId);
+                        if (!context.mounted) return;
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(
+                            builder: (_) => OrderStatusScreen(orderId: paid.id),
+                          ),
+                        );
+                      } catch (err) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(err.toString()),
+                            backgroundColor: Colors.redAccent,
+                          ),
+                        );
+                      }
+                    },
+            ),
+            const SizedBox(height: 12),
+            _PaymentOption(
+              title: 'Payer a la reception',
+              subtitle: 'Paiement cash a la livraison',
+              onTap: () {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (_) => OrderStatusScreen(orderId: orderId),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentOption extends StatelessWidget {
+  const _PaymentOption({
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.payments_outlined, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(subtitle),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, size: 16),
+          ],
+        ),
       ),
     );
   }

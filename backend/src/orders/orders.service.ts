@@ -85,6 +85,30 @@ export class OrdersService {
     return order.save();
   }
 
+  async validatePrice(userId: string, id: string) {
+    const order = await this.findById(id);
+    if (order.user_id.toString() !== userId) {
+      throw new BadRequestException('Order not owned by user');
+    }
+    if (order.status !== OrderStatus.NOUVELLE) {
+      throw new BadRequestException('Order cannot be validated');
+    }
+    order.status = OrderStatus.PRIX_VALIDE;
+    return order.save();
+  }
+
+  async markPaid(userId: string, id: string) {
+    const order = await this.findById(id);
+    if (order.user_id.toString() !== userId) {
+      throw new BadRequestException('Order not owned by user');
+    }
+    if (order.status !== OrderStatus.PRIX_VALIDE) {
+      throw new BadRequestException('Order is not in prix_validé status');
+    }
+    order.status = OrderStatus.PAYEE;
+    return order.save();
+  }
+
   async markFailed(id: string, reason: string) {
     const order = await this.findById(id);
     if (order.status !== OrderStatus.PRIX_VALIDE) {
