@@ -10,6 +10,11 @@
 ## Base de donnees
 - MongoDB Atlas (URI via `MONGO_URI`).
 
+## Seed (marches/produits)
+```bash
+npm run seed
+```
+
 ## Lancer l'API
 ```bash
 npm install
