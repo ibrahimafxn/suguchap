@@ -624,6 +624,18 @@ Critères d’acceptation (Sprint 3) :
 - Écran de suivi simple côté cliente.
 - Option “payer à la réception” disponible et tracée en commande.
 
+### Rétrospective Sprint 3 (2026-03-01)
+Ce qui a été fait :
+- Paiement mock branché (mobile money simulé + payer à la réception)
+- Statuts `nouvelle -> prix_validé -> payée` gérés via API
+- Écrans validation prix, paiement et suivi commande
+
+Points de friction :
+- Coordination token admin pour seed et accès marchés/produits
+
+Actions / amélioration :
+- Brancher CinetPay réel en Sprint 4+
+
 ---
 
 ## Sprint 4 — App coursier (MVP core) — 2 semaines
