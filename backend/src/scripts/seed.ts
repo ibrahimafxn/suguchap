@@ -70,7 +70,7 @@ const products = [
 ];
 
 async function seed() {
-  await mongoose.connect(mongoUri);
+  await mongoose.connect(mongoUri!);
 
   const marketIdByKey = new Map<string, mongoose.Types.ObjectId>();
 
@@ -93,7 +93,9 @@ async function seed() {
 
   for (const product of products) {
     const marketId = marketIdByKey.get(product.marketKey);
-    if (!marketId) continue;
+    if (!marketId) {
+      continue;
+    }
 
     await Product.findOneAndUpdate(
       { name: product.name, market_id: marketId },
