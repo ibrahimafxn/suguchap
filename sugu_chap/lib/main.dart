@@ -132,6 +132,51 @@ class ApiClient {
     final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
     return data.map((item) => Product.fromJson(item as Map<String, dynamic>)).toList();
   }
+
+  Future<OrderResult> createOrder({
+    required String marketId,
+    required String deliveryAddress,
+    required String deliveryCity,
+    required List<CartItem> items,
+    String paymentMethod = 'cash_on_delivery',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/orders');
+    final payload = {
+      'market_id': marketId,
+      'delivery_address': deliveryAddress,
+      'delivery_city': deliveryCity,
+      'payment_method': paymentMethod,
+      'items': items
+          .map(
+            (item) => {
+              'product_id': item.product.id,
+              'quantity': item.quantity,
+              'price_estimated': item.product.price,
+            },
+          )
+          .toList(),
+    };
+    final response = await http.post(
+      uri,
+      headers: _headers(),
+      body: jsonEncode(payload),
+    );
+    if (response.statusCode != 201 && response.statusCode != 200) {
+      throw Exception('Erreur API orders (${response.statusCode})');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return OrderResult.fromJson(data);
+  }
+
+  Future<OrderResult> fetchOrder(String orderId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/orders/$orderId');
+    final response = await http.get(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw Exception('Erreur API order (${response.statusCode})');
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return OrderResult.fromJson(data);
+  }
 }
 
 class AuthResult {
@@ -144,6 +189,20 @@ class AuthResult {
   }
 }
 
+class OrderResult {
+  final String id;
+  final String status;
+
+  const OrderResult({required this.id, required this.status});
+
+  factory OrderResult.fromJson(Map<String, dynamic> json) {
+    return OrderResult(
+      id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
+      status: json['status']?.toString() ?? '',
+    );
+  }
+}
+
 class AppState extends ChangeNotifier {
   AppState({required this.apiClient});
 
@@ -153,6 +212,8 @@ class AppState extends ChangeNotifier {
   List<Product> products = [];
   bool marketsLoading = false;
   bool productsLoading = false;
+  bool orderLoading = false;
+  OrderResult? lastOrder;
   String? lastError;
 
   String? city;
@@ -205,6 +266,56 @@ class AppState extends ChangeNotifier {
       lastError = err.toString();
     } finally {
       productsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<OrderResult> submitOrder() async {
+    if (selectedMarketId == null) {
+      throw Exception('Aucun marche selectionne');
+    }
+    if (address == null || address!.isEmpty || city == null || city!.isEmpty) {
+      throw Exception('Adresse ou ville manquante');
+    }
+    if (cart.isEmpty) {
+      throw Exception('Panier vide');
+    }
+
+    orderLoading = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final result = await apiClient.createOrder(
+        marketId: selectedMarketId!,
+        deliveryAddress: address!,
+        deliveryCity: city!,
+        items: cart.values.toList(),
+      );
+      cart.clear();
+      lastOrder = result;
+      return result;
+    } catch (err) {
+      lastError = err.toString();
+      rethrow;
+    } finally {
+      orderLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<OrderResult> refreshOrder(String orderId) async {
+    orderLoading = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final result = await apiClient.fetchOrder(orderId);
+      lastOrder = result;
+      return result;
+    } catch (err) {
+      lastError = err.toString();
+      rethrow;
+    } finally {
+      orderLoading = false;
       notifyListeners();
     }
   }
@@ -905,7 +1016,15 @@ class CartScreen extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
-                      onPressed: () {},
+                      onPressed: items.isEmpty
+                          ? null
+                          : () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const PriceValidationScreen(),
+                                ),
+                              );
+                            },
                       child: const Text('Valider le panier'),
                     ),
                   ),
@@ -980,6 +1099,225 @@ class CartItem {
     return CartItem(
       product: product,
       quantity: quantity ?? this.quantity,
+    );
+  }
+}
+
+class PriceValidationScreen extends StatelessWidget {
+  const PriceValidationScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = AppStateScope.of(context);
+    final total = appState.cartTotal;
+    final address = appState.address ?? '';
+    final city = appState.city ?? '';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Validation du prix'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Recapitulatif',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            _InfoRow(label: 'Adresse', value: '$address, $city'),
+            const SizedBox(height: 8),
+            _InfoRow(
+              label: 'Paiement',
+              value: 'Payer a la reception',
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3EBDD),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Total estime',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    '${total.toStringAsFixed(0)} FCFA',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+            const Spacer(),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: appState.orderLoading
+                    ? null
+                    : () async {
+                        try {
+                          final result = await appState.submitOrder();
+                          if (!context.mounted) return;
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(
+                              builder: (_) => OrderStatusScreen(orderId: result.id),
+                            ),
+                          );
+                        } catch (err) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(err.toString()),
+                              backgroundColor: Colors.redAccent,
+                            ),
+                          );
+                        }
+                      },
+                child: appState.orderLoading
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Confirmer la commande'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class OrderStatusScreen extends StatefulWidget {
+  const OrderStatusScreen({super.key, required this.orderId});
+
+  final String orderId;
+
+  @override
+  State<OrderStatusScreen> createState() => _OrderStatusScreenState();
+}
+
+class _OrderStatusScreenState extends State<OrderStatusScreen> {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await AppStateScope.of(context).refreshOrder(widget.orderId);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = AppStateScope.of(context);
+    final status = appState.lastOrder?.status ?? 'nouvelle';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Suivi commande'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Commande ${widget.orderId}',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            _InfoRow(label: 'Statut', value: status),
+            const SizedBox(height: 24),
+            _StatusStep(title: 'Nouvelle', active: status == 'nouvelle'),
+            _StatusStep(title: 'Prix valide', active: status == 'prix_validé'),
+            _StatusStep(title: 'Payee', active: status == 'payée'),
+            _StatusStep(title: 'En achat', active: status == 'en_achat'),
+            _StatusStep(title: 'En livraison', active: status == 'en_livraison'),
+            _StatusStep(title: 'Livree', active: status == 'livrée'),
+            const Spacer(),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: appState.orderLoading
+                    ? null
+                    : () async {
+                        try {
+                          await appState.refreshOrder(widget.orderId);
+                        } catch (err) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(err.toString()),
+                              backgroundColor: Colors.redAccent,
+                            ),
+                          );
+                        }
+                      },
+                child: appState.orderLoading
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Actualiser'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        Flexible(child: Text(value, textAlign: TextAlign.right)),
+      ],
+    );
+  }
+}
+
+class _StatusStep extends StatelessWidget {
+  const _StatusStep({required this.title, required this.active});
+
+  final String title;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Container(
+            height: 12,
+            width: 12,
+            decoration: BoxDecoration(
+              color: active ? const Color(0xFF0F766E) : const Color(0xFFE5E7EB),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(title),
+        ],
+      ),
     );
   }
 }
