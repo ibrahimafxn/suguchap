@@ -175,6 +175,20 @@ Critères d’acceptation (Sprint 1) :
 - Création et lecture d’une commande possible via API.
 - Documentation minimale des endpoints (README ou Swagger).
 
+### Rétrospective Sprint 1 (2026-03-01)
+Ce qui a été fait :
+- Backend NestJS prêt (auth OTP + JWT, CRUD marchés/produits, commandes)
+- Base de données MongoDB Atlas branchée
+- Swagger minimal actif
+
+Points de friction :
+- Auth admin nécessaire pour charger les marchés/produits côté mobile
+- Configuration Mongo Atlas (URI/whitelist) a pris du temps
+
+Actions / amélioration :
+- Ajouter un seed de données (marchés/produits) en dev
+- Prévoir un mode dev pour bypass admin côté mobile ou endpoint seed sécurisé
+
 ### Détails techniques Sprint 1
 
 Schéma DB (PostgreSQL, proposition minimale) :
